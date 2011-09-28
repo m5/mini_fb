@@ -23,7 +23,7 @@ require 'logger'
 module MiniFB
 
     # Global constants
-    FB_URL = "http://api.facebook.com/restserver.php"
+    FB_URL = "https://api.facebook.com/restserver.php"
     FB_API_VERSION = "1.0"
 
     @@logging = false
@@ -203,22 +203,17 @@ module MiniFB
         kwargs["method"] ||= method
 
         file_name = kwargs.delete("filename")
-
         kwargs["sig"] = signature_for(kwargs, secret.value.call)
+        if file_name
+          kwargs[File.basename(file_name)] = File.new(file_name, 'rb')
+        end
 
-        fb_method = kwargs["method"].downcase
-        if fb_method == "photos.upload"
-            # Then we need a multipart post
-            response = MiniFB.post_upload(file_name, kwargs)
-        else
-
-            begin
-                response = Net::HTTP.post_form(URI.parse(FB_URL), post_params(kwargs))
-            rescue SocketError => err
-                # why are we catching this and throwing as different error?  hmmm..
-                # raise IOError.new( "Cannot connect to the facebook server: " + err )
-                raise err
-            end
+        begin
+            response = RestClient.post(FB_URL, kwargs)
+        rescue SocketError => err
+            # why are we catching this and throwing as different error?  hmmm..
+            # raise IOError.new( "Cannot connect to the facebook server: " + err )
+            raise err
         end
 
         # Handle response
@@ -244,33 +239,6 @@ module MiniFB
             end
         end
         return data
-    end
-
-    def MiniFB.post_upload(filename, kwargs)
-        content = File.open(filename, 'rb') { |f| f.read }
-        boundary = Digest::MD5.hexdigest(content)
-        header = {'Content-type' => "multipart/form-data, boundary=#{boundary}"}
-
-        # Build query
-        query = ''
-        kwargs.each { |a, v|
-            query <<
-                    "--#{boundary}\r\n" <<
-                    "Content-Disposition: form-data; name=\"#{a}\"\r\n\r\n" <<
-                    "#{v}\r\n"
-        }
-        query <<
-                "--#{boundary}\r\n" <<
-                "Content-Disposition: form-data; filename=\"#{File.basename(filename)}\"\r\n" <<
-                "Content-Transfer-Encoding: binary\r\n" <<
-                "Content-Type: image/jpeg\r\n\r\n" <<
-                content <<
-                "\r\n" <<
-                "--#{boundary}--"
-
-        # Call Facebook with POST multipart/form-data request
-        uri = URI.parse(FB_URL)
-        Net::HTTP.start(uri.host) { |http| http.post uri.path, query, header }
     end
 
     # Returns true is signature is valid, false otherwise.
